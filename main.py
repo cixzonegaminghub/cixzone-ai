@@ -1,65 +1,99 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi.staticfiles import StaticFiles
+import openai
+import os
 
 app = FastAPI()
 
-AI_NAME = "CIXZONE AI"
-AI_CREATOR = "Joseph Octavian Lyimo"
-AI_MISSION = "Africa First Intelligent Web Assistant"
+# ========== CONFIG ==========
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-class ChatRequest(BaseModel):
-    message: str
+SYSTEM_PROMPT = """
+Wewe ni CIXZONE AI.
+Umetengenezwa na Joseph Octavian Lyimo.
+Lengo lako ni kusaidia Afrika, hasa Tanzania.
+Unajibu kwa akili, kwa heshima, na kwa lugha ya mtumiaji.
+Unamkumbuka creator wako na unamheshimu.
+"""
 
+conversation_memory = []
+
+# ========== AI FUNCTION ==========
+def ask_ai(user_message):
+    conversation_memory.append({"role": "user", "content": user_message})
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages += conversation_memory[-10:]  # memory ya mazungumzo ya mwisho
+
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=messages
+    )
+
+    ai_reply = response.choices[0].message.content
+    conversation_memory.append({"role": "assistant", "content": ai_reply})
+    return ai_reply
+
+# ========== WEB UI ==========
 @app.get("/", response_class=HTMLResponse)
-def home():
+async def home():
     return """
-    <!DOCTYPE html>
     <html>
     <head>
         <title>CIXZONE AI</title>
         <style>
-            body { font-family: Arial; background:#0f172a; color:white; }
-            .chat { max-width:600px; margin:auto; margin-top:50px; }
-            input, button { padding:10px; width:100%; margin-top:10px; }
-            .box { background:#020617; padding:15px; border-radius:8px; }
+            body {
+                background: #0b0f1a;
+                color: white;
+                font-family: Arial;
+                text-align: center;
+                padding-top: 80px;
+            }
+            input {
+                width: 70%;
+                padding: 12px;
+                font-size: 16px;
+            }
+            button {
+                padding: 12px 20px;
+                margin-top: 10px;
+                font-size: 16px;
+                cursor: pointer;
+            }
+            #reply {
+                margin-top: 30px;
+                font-size: 18px;
+            }
         </style>
     </head>
     <body>
-        <div class="chat">
-            <h2>🤖 CIXZONE AI</h2>
-            <div id="response" class="box">Karibu! Mimi ni CIXZONE AI 🇹🇿</div>
-            <input id="msg" placeholder="Andika ujumbe wako..." />
-            <button onclick="send()">Tuma</button>
-        </div>
+        <h1>🤖 CIXZONE AI</h1>
+        <input id="msg" placeholder="Andika ujumbe..." />
+        <br>
+        <button onclick="send()">Tuma</button>
+        <div id="reply"></div>
 
         <script>
             async function send() {
-                let msg = document.getElementById("msg").value;
-                let res = await fetch("/chat", {
-                    method:"POST",
-                    headers:{ "Content-Type":"application/json" },
+                const msg = document.getElementById("msg").value;
+                const res = await fetch("/chat", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
                     body: JSON.stringify({message: msg})
                 });
-                let data = await res.json();
-                document.getElementById("response").innerText = data.reply;
+                const data = await res.json();
+                document.getElementById("reply").innerText = data.reply;
             }
         </script>
     </body>
     </html>
     """
 
+# ========== CHAT ENDPOINT ==========
 @app.post("/chat")
-def chat(req: ChatRequest):
-    user = req.message.lower()
-
-    if "creator" in user or "nani alikutengeneza" in user:
-        reply = f"Nimetengenezwa na {AI_CREATOR}."
-    elif "mission" in user or "lengo" in user:
-        reply = AI_MISSION
-    elif "jina lako" in user:
-        reply = f"Mimi ni {AI_NAME}."
-    else:
-        reply = f"Nimekupata. Umesema: '{req.message}'. Niko hapa kukusaidia."
-
+async def chat(req: Request):
+    data = await req.json()
+    user_message = data["message"]
+    reply = ask_ai(user_message)
     return {"reply": reply}
